@@ -1,5 +1,7 @@
 👥 Rôles et Fonctionnalités
+
 1. Administrateur (Admin)
+   
 ✅ Gestion complète des enseignants (ajout, modification, suppression)
 
 ✅ Gestion des cours (création, attribution, planning)
