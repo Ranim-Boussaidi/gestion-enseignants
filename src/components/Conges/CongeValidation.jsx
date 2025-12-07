@@ -14,6 +14,17 @@ const CongeValidation = () => {
 
   useEffect(() => {
     loadData();
+    
+    // Écouter les événements de mise à jour des congés
+    const handleCongesUpdate = () => {
+      loadData();
+    };
+    
+    window.addEventListener('congesUpdated', handleCongesUpdate);
+    
+    return () => {
+      window.removeEventListener('congesUpdated', handleCongesUpdate);
+    };
   }, []);
 
   const loadData = async () => {
@@ -24,10 +35,15 @@ const CongeValidation = () => {
         teacherService.getTeachers()
       ]);
       
-      setCongesEnAttente(congesData);
-      setTeachers(teachersData);
+      console.log('Congés en attente récupérés:', congesData.length, congesData);
+      
+      // S'assurer que les données sont bien des tableaux
+      setCongesEnAttente(Array.isArray(congesData) ? congesData : []);
+      setTeachers(Array.isArray(teachersData) ? teachersData : []);
     } catch (error) {
       console.error('Erreur chargement:', error);
+      setCongesEnAttente([]);
+      setTeachers([]);
     }
     setLoading(false);
   };
@@ -48,10 +64,12 @@ const CongeValidation = () => {
         return;
       }
 
+      const decision = actionType === 'approve' ? 'approuve' : 'refuse';
       await congeService.traiterConge(
         selectedConge.id, 
-        actionType, 
-        actionType === 'refuse' ? motifRefus : ''
+        decision, 
+        actionType === 'refuse' ? motifRefus : '',
+        'admin'
       );
 
       // Notifier tous les composants
@@ -64,7 +82,7 @@ const CongeValidation = () => {
       // Recharger les données
       loadData();
       
-      alert(`Demande ${actionType === 'approve' ? 'approuvée' : 'refusée'} avec succès!`);
+      alert(`Demande ${decision === 'approuve' ? 'approuvée' : 'refusée'} avec succès!`);
     } catch (error) {
       console.error('Erreur validation:', error);
       alert('Erreur lors du traitement de la demande');
@@ -135,7 +153,7 @@ const CongeValidation = () => {
         </div>
         <div style={styles.stat}>
           <span style={styles.statNumber}>
-            {new Set(congesEnAttente.map(c => c.typeConge)).size}
+            {Array.isArray(congesEnAttente) ? new Set(congesEnAttente.filter(c => c && c.typeConge).map(c => c.typeConge)).size : 0}
           </span>
           <span style={styles.statLabel}>Types de congé</span>
         </div>
@@ -143,8 +161,8 @@ const CongeValidation = () => {
 
       {/* Liste des demandes en attente */}
       <div style={styles.congesGrid}>
-        {congesEnAttente.length > 0 ? (
-          congesEnAttente.map(conge => {
+        {Array.isArray(congesEnAttente) && congesEnAttente.length > 0 ? (
+          congesEnAttente.filter(c => c && c.id).map(conge => {
             const enseignant = getEnseignantInfo(conge.enseignantId);
             const jours = calculateJours(conge.dateDebut, conge.dateFin);
             
@@ -153,10 +171,10 @@ const CongeValidation = () => {
                 <div style={styles.cardHeader}>
                   <div style={styles.enseignantInfo}>
                     <h4 style={styles.enseignantName}>
-                      {conge.enseignantNom} {conge.enseignantPrenom}
+                      {conge.enseignantNom || 'N/A'} {conge.enseignantPrenom || ''}
                     </h4>
                     <p style={styles.enseignantDepartment}>
-                      {enseignant.departement || 'Département non spécifié'}
+                      {enseignant?.departement || 'Département non spécifié'}
                     </p>
                   </div>
                   <div style={styles.congeType}>
@@ -179,7 +197,7 @@ const CongeValidation = () => {
 
                   <div style={styles.motifSection}>
                     <strong>📋 Motif:</strong>
-                    <p style={styles.motif}>{conge.motif}</p>
+                    <p style={styles.motif}>{conge.motif || 'Non spécifié'}</p>
                   </div>
 
                   <div style={styles.metaInfo}>
@@ -233,11 +251,11 @@ const CongeValidation = () => {
 
             <div style={styles.modalContent}>
               <div style={styles.demandInfo}>
-                <p><strong>Enseignant:</strong> {selectedConge.enseignantNom} {selectedConge.enseignantPrenom}</p>
-                <p><strong>Type:</strong> {getTypeCongeText(selectedConge.typeConge)}</p>
-                <p><strong>Période:</strong> {new Date(selectedConge.dateDebut?.toDate?.() || selectedConge.dateDebut).toLocaleDateString('fr-FR')} → {new Date(selectedConge.dateFin?.toDate?.() || selectedConge.dateFin).toLocaleDateString('fr-FR')}</p>
+                <p><strong>Enseignant:</strong> {selectedConge.enseignantNom || 'N/A'} {selectedConge.enseignantPrenom || ''}</p>
+                <p><strong>Type:</strong> {getTypeCongeText(selectedConge.typeConge || '')}</p>
+                <p><strong>Période:</strong> {selectedConge.dateDebut ? new Date(selectedConge.dateDebut?.toDate?.() || selectedConge.dateDebut).toLocaleDateString('fr-FR') : 'N/A'} → {selectedConge.dateFin ? new Date(selectedConge.dateFin?.toDate?.() || selectedConge.dateFin).toLocaleDateString('fr-FR') : 'N/A'}</p>
                 <p><strong>Durée:</strong> {calculateJours(selectedConge.dateDebut, selectedConge.dateFin)} jours</p>
-                <p><strong>Motif:</strong> {selectedConge.motif}</p>
+                <p><strong>Motif:</strong> {selectedConge.motif || 'Non spécifié'}</p>
               </div>
 
               {actionType === 'refuse' && (

@@ -81,7 +81,24 @@ export const presenceService = {
       }));
     } catch (error) {
       console.error('Erreur chargement présences:', error);
-      return [];
+      // Si erreur d'index Firestore, essayer sans orderBy
+      try {
+        const q = query(
+          presencesCollection,
+          where('date', '>=', startDate),
+          where('date', '<=', endDate)
+        );
+        const snapshot = await getDocs(q);
+        const results = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        // Trier manuellement
+        return results.sort((a, b) => a.date.localeCompare(b.date));
+      } catch (fallbackError) {
+        console.error('Erreur fallback présences:', fallbackError);
+        return [];
+      }
     }
   },
 
@@ -90,8 +107,12 @@ export const presenceService = {
     try {
       let q;
       if (month) {
+        // Calculer correctement la date de fin du mois
+        const [year, monthNum] = month.split('-');
+        const lastDay = new Date(parseInt(year), parseInt(monthNum), 0).getDate();
         const startDate = `${month}-01`;
-        const endDate = `${month}-31`;
+        const endDate = `${month}-${String(lastDay).padStart(2, '0')}`;
+        
         q = query(
           presencesCollection,
           where('enseignantId', '==', enseignantId),
@@ -114,7 +135,28 @@ export const presenceService = {
       }));
     } catch (error) {
       console.error('Erreur présences enseignant:', error);
-      return [];
+      // Si erreur d'index Firestore, essayer sans orderBy
+      try {
+        const q = query(
+          presencesCollection,
+          where('enseignantId', '==', enseignantId)
+        );
+        const snapshot = await getDocs(q);
+        const results = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        // Trier manuellement
+        return results.sort((a, b) => {
+          if (month) {
+            return a.date.localeCompare(b.date);
+          }
+          return b.date.localeCompare(a.date);
+        });
+      } catch (fallbackError) {
+        console.error('Erreur fallback présences:', fallbackError);
+        return [];
+      }
     }
   },
 
@@ -152,8 +194,11 @@ export const presenceService = {
   // GET MONTHLY STATS
   getMonthlyStats: async (month) => {
     try {
+      // Calculer correctement la date de fin du mois
+      const [year, monthNum] = month.split('-');
+      const lastDay = new Date(parseInt(year), parseInt(monthNum), 0).getDate();
       const startDate = `${month}-01`;
-      const endDate = `${month}-31`;
+      const endDate = `${month}-${String(lastDay).padStart(2, '0')}`;
       const presences = await presenceService.getPresencesByDateRange(startDate, endDate);
       
       const stats = {

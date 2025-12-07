@@ -1,39 +1,37 @@
 // src/components/Conges/CongeForm.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { congeService } from '../../services/congeService';
-import { teacherService } from '../../services/teacherService';
+import { AuthContext } from '../../context/AuthContext';
 
 const CongeForm = ({ onClose, onSave }) => {
+  const { user } = useContext(AuthContext);
   const [formData, setFormData] = useState({
     typeConge: 'annuel',
     dateDebut: '',
     dateFin: '',
     motif: '',
-    enseignantId: '',
-    enseignantNom: '',
-    enseignantPrenom: ''
+    enseignantId: user?.uid || '',
+    enseignantNom: user?.nom || '',
+    enseignantPrenom: user?.prenom || ''
   });
-  const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [joursDemandes, setJoursDemandes] = useState(0);
 
   useEffect(() => {
-    loadTeachers();
-  }, []);
+    if (user) {
+      setFormData(prev => ({
+        ...prev,
+        enseignantId: user.uid,
+        enseignantNom: user.nom || '',
+        enseignantPrenom: user.prenom || ''
+      }));
+    }
+  }, [user]);
 
   useEffect(() => {
     calculerJours();
   }, [formData.dateDebut, formData.dateFin]);
-
-  const loadTeachers = async () => {
-    try {
-      const data = await teacherService.getTeachers();
-      setTeachers(data);
-    } catch (error) {
-      console.error('Erreur chargement enseignants:', error);
-    }
-  };
 
   const calculerJours = () => {
     if (formData.dateDebut && formData.dateFin) {
@@ -51,17 +49,6 @@ const CongeForm = ({ onClose, onSave }) => {
       [name]: value
     }));
 
-    if (name === 'enseignantId') {
-      const selectedTeacher = teachers.find(t => t.id === value);
-      if (selectedTeacher) {
-        setFormData(prev => ({
-          ...prev,
-          enseignantNom: selectedTeacher.nom,
-          enseignantPrenom: selectedTeacher.prenom
-        }));
-      }
-    }
-
     if (errors[name]) {
       setErrors(prev => ({
         ...prev,
@@ -73,7 +60,6 @@ const CongeForm = ({ onClose, onSave }) => {
   const validateForm = () => {
     const newErrors = {};
     
-    if (!formData.enseignantId) newErrors.enseignantId = 'Enseignant requis';
     if (!formData.typeConge) newErrors.typeConge = 'Type de congé requis';
     if (!formData.dateDebut) newErrors.dateDebut = 'Date de début requise';
     if (!formData.dateFin) newErrors.dateFin = 'Date de fin requise';
@@ -110,6 +96,10 @@ const CongeForm = ({ onClose, onSave }) => {
         dateFin: new Date(formData.dateFin)
       });
       
+      // Notifier tous les composants (notamment l'admin)
+      window.dispatchEvent(new Event('congesUpdated'));
+      
+      alert('✅ Demande de congé soumise avec succès!');
       onSave();
     } catch (error) {
       console.error('Erreur soumission congé:', error);
@@ -136,28 +126,6 @@ const CongeForm = ({ onClose, onSave }) => {
         </div>
 
         <form onSubmit={handleSubmit} style={styles.form}>
-          {/* Enseignant */}
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Enseignant *</label>
-            <select
-              name="enseignantId"
-              value={formData.enseignantId}
-              onChange={handleChange}
-              style={{
-                ...styles.input,
-                ...(errors.enseignantId && styles.inputError)
-              }}
-            >
-              <option value="">Sélectionnez un enseignant</option>
-              {teachers.map(teacher => (
-                <option key={teacher.id} value={teacher.id}>
-                  {teacher.nom} {teacher.prenom} - {teacher.departement}
-                </option>
-              ))}
-            </select>
-            {errors.enseignantId && <span style={styles.errorText}>{errors.enseignantId}</span>}
-          </div>
-
           {/* Type de congé */}
           <div style={styles.formGroup}>
             <label style={styles.label}>Type de Congé *</label>

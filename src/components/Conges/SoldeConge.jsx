@@ -3,19 +3,45 @@ import React, { useState, useEffect } from 'react';
 import { congeService } from '../../services/congeService';
 import { teacherService } from '../../services/teacherService';
 
-const SoldeConge = () => {
+const SoldeConge = ({ enseignantId = null }) => {
   const [teachers, setTeachers] = useState([]);
   const [soldes, setSoldes] = useState({});
   const [loading, setLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [soldePersonnel, setSoldePersonnel] = useState(null);
 
   useEffect(() => {
     loadSoldes();
-  }, [selectedYear]);
+  }, [selectedYear, enseignantId]);
+
+  // Écouter les événements de mise à jour des congés pour rafraîchir le solde
+  useEffect(() => {
+    if (!enseignantId) return; // Seulement pour la vue personnelle
+    
+    const handleCongesUpdate = () => {
+      console.log('Événement congesUpdated reçu, rafraîchissement du solde...');
+      loadSoldes();
+    };
+    
+    window.addEventListener('congesUpdated', handleCongesUpdate);
+    
+    return () => {
+      window.removeEventListener('congesUpdated', handleCongesUpdate);
+    };
+  }, [enseignantId, selectedYear]);
 
   const loadSoldes = async () => {
     setLoading(true);
     try {
+      // Si un enseignantId est fourni, charger uniquement son solde
+      if (enseignantId) {
+        const solde = await congeService.calculerSoldeConge(enseignantId, selectedYear);
+        setSoldePersonnel(solde);
+        setLoading(false);
+        return;
+      }
+
+      // Sinon, charger tous les enseignants (vue admin)
       const teachersData = await teacherService.getTeachers();
       setTeachers(teachersData);
 
@@ -61,6 +87,67 @@ const SoldeConge = () => {
     );
   }
 
+  // Vue personnelle pour un enseignant
+  if (enseignantId && soldePersonnel) {
+    return (
+      <div style={styles.personalContainer}>
+        <div style={styles.personalHeader}>
+          <h3 style={styles.personalTitle}>💰 Mon Solde de Congé {selectedYear}</h3>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+            style={styles.yearSelect}
+          >
+            {years.map(year => (
+              <option key={year} value={year}>{year}</option>
+            ))}
+          </select>
+        </div>
+        <div style={styles.personalStats}>
+          <div style={styles.personalStatCard}>
+            <div style={styles.personalStatIcon}>📅</div>
+            <div style={styles.personalStatContent}>
+              <span style={styles.personalStatNumber}>{soldePersonnel.soldeBase}</span>
+              <span style={styles.personalStatLabel}>Jours de base</span>
+            </div>
+          </div>
+          <div style={styles.personalStatCard}>
+            <div style={styles.personalStatIcon}>🏖️</div>
+            <div style={styles.personalStatContent}>
+              <span style={styles.personalStatNumber}>{soldePersonnel.joursPris}</span>
+              <span style={styles.personalStatLabel}>Jours pris</span>
+            </div>
+          </div>
+          <div style={{
+            ...styles.personalStatCard,
+            background: getSoldeColor(soldePersonnel.soldeRestant) === '#28a745' ? '#d4edda' :
+                       getSoldeColor(soldePersonnel.soldeRestant) === '#ffc107' ? '#fff3cd' : '#f8d7da',
+            border: `2px solid ${getSoldeColor(soldePersonnel.soldeRestant)}`
+          }}>
+            <div style={styles.personalStatIcon}>{getSoldeIcon(soldePersonnel.soldeRestant)}</div>
+            <div style={styles.personalStatContent}>
+              <span style={{
+                ...styles.personalStatNumber,
+                color: getSoldeColor(soldePersonnel.soldeRestant)
+              }}>
+                {soldePersonnel.soldeRestant}
+              </span>
+              <span style={styles.personalStatLabel}>Jours restants</span>
+            </div>
+          </div>
+          <div style={styles.personalStatCard}>
+            <div style={styles.personalStatIcon}>✅</div>
+            <div style={styles.personalStatContent}>
+              <span style={styles.personalStatNumber}>{soldePersonnel.congesApprouves}</span>
+              <span style={styles.personalStatLabel}>Congés approuvés</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Vue admin - tous les enseignants
   return (
     <div style={styles.container}>
       {/* Header */}
@@ -357,6 +444,61 @@ const styles = {
     padding: '40px',
     color: '#666',
     fontSize: '16px'
+  },
+  // Styles pour la vue personnelle
+  personalContainer: {
+    background: 'white',
+    borderRadius: '10px',
+    padding: '25px',
+    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+    marginBottom: '25px'
+  },
+  personalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '20px',
+    flexWrap: 'wrap',
+    gap: '15px'
+  },
+  personalTitle: {
+    margin: 0,
+    color: '#333',
+    fontSize: '20px',
+    fontWeight: 'bold'
+  },
+  personalStats: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+    gap: '15px'
+  },
+  personalStatCard: {
+    background: '#f8f9fa',
+    padding: '20px',
+    borderRadius: '10px',
+    border: '1px solid #e9ecef',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '15px',
+    transition: 'all 0.3s ease'
+  },
+  personalStatIcon: {
+    fontSize: '30px'
+  },
+  personalStatContent: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '5px'
+  },
+  personalStatNumber: {
+    fontSize: '24px',
+    fontWeight: 'bold',
+    color: '#333'
+  },
+  personalStatLabel: {
+    fontSize: '12px',
+    color: '#666',
+    fontWeight: '500'
   }
 };
 

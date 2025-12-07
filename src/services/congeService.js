@@ -9,7 +9,8 @@ import {
   query,
   where,
   orderBy,
-  deleteDoc 
+  deleteDoc,
+  serverTimestamp 
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
@@ -19,13 +20,21 @@ export const congeService = {
   // SOUMETTRE UNE DEMANDE DE CONGÉ
   soumettreConge: async (congeData) => {
     try {
-      const docRef = await addDoc(congesCollection, {
+      const congeToSave = {
         ...congeData,
-        dateSoumission: new Date(),
+        dateSoumission: serverTimestamp(),
         statut: 'en_attente', // en_attente, approuve, refuse
-        timestamp: new Date()
-      });
-      return { id: docRef.id, ...congeData };
+        timestamp: serverTimestamp()
+      };
+      
+      console.log('Soumission congé:', congeToSave);
+      
+      const docRef = await addDoc(congesCollection, congeToSave);
+      const savedConge = { id: docRef.id, ...congeData, statut: 'en_attente' };
+      
+      console.log('Congé créé avec succès:', savedConge);
+      
+      return savedConge;
     } catch (error) {
       console.error('Erreur soumission congé:', error);
       throw error;
@@ -35,54 +44,154 @@ export const congeService = {
   // RÉCUPÉRER TOUTES LES DEMANDES
   getConges: async (filters = {}) => {
     try {
-      let q = query(congesCollection, orderBy('dateSoumission', 'desc'));
+      let q;
       
-      if (filters.enseignantId) {
-        q = query(q, where('enseignantId', '==', filters.enseignantId));
+      // Si on a des filtres, essayer avec orderBy
+      if (filters.enseignantId || filters.statut) {
+        try {
+          q = query(congesCollection, orderBy('dateSoumission', 'desc'));
+          
+          if (filters.enseignantId) {
+            q = query(q, where('enseignantId', '==', filters.enseignantId));
+          }
+          if (filters.statut) {
+            q = query(q, where('statut', '==', filters.statut));
+          }
+          
+          const snapshot = await getDocs(q);
+          return snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+        } catch (indexError) {
+          // Si l'index n'existe pas, récupérer sans orderBy et filtrer/trier côté client
+          console.warn('Index composite manquant, filtrage/tri côté client:', indexError);
+          const snapshot = await getDocs(congesCollection);
+          let conges = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          
+          // Filtrer côté client
+          if (filters.enseignantId) {
+            conges = conges.filter(c => c.enseignantId === filters.enseignantId);
+          }
+          if (filters.statut) {
+            conges = conges.filter(c => c.statut === filters.statut);
+          }
+          
+          // Trier par dateSoumission (plus récent en premier)
+          conges.sort((a, b) => {
+            const dateA = a.dateSoumission?.toDate ? a.dateSoumission.toDate() : new Date(a.dateSoumission || 0);
+            const dateB = b.dateSoumission?.toDate ? b.dateSoumission.toDate() : new Date(b.dateSoumission || 0);
+            return dateB - dateA;
+          });
+          
+          return conges;
+        }
+      } else {
+        // Pas de filtres, récupérer avec orderBy simple
+        q = query(congesCollection, orderBy('dateSoumission', 'desc'));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
       }
-      if (filters.statut) {
-        q = query(q, where('statut', '==', filters.statut));
-      }
-      
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
     } catch (error) {
       console.error('Erreur chargement congés:', error);
-      return [];
+      // Fallback final : récupérer tout et filtrer/trier côté client
+      try {
+        const snapshot = await getDocs(congesCollection);
+        let conges = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        if (filters.enseignantId) {
+          conges = conges.filter(c => c.enseignantId === filters.enseignantId);
+        }
+        if (filters.statut) {
+          conges = conges.filter(c => c.statut === filters.statut);
+        }
+        
+        conges.sort((a, b) => {
+          const dateA = a.dateSoumission?.toDate ? a.dateSoumission.toDate() : new Date(a.dateSoumission || 0);
+          const dateB = b.dateSoumission?.toDate ? b.dateSoumission.toDate() : new Date(b.dateSoumission || 0);
+          return dateB - dateA;
+        });
+        
+        return conges;
+      } catch (fallbackError) {
+        console.error('Erreur fallback chargement congés:', fallbackError);
+        return [];
+      }
     }
   },
 
   // RÉCUPÉRER LES CONGÉS EN ATTENTE
   getCongesEnAttente: async () => {
     try {
-      const q = query(
-        congesCollection,
-        where('statut', '==', 'en_attente'),
-        orderBy('dateSoumission')
-      );
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      // Essayer d'abord avec orderBy (nécessite un index composite)
+      try {
+        const q = query(
+          congesCollection,
+          where('statut', '==', 'en_attente'),
+          orderBy('dateSoumission', 'desc')
+        );
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+      } catch (indexError) {
+        // Si l'index n'existe pas, récupérer sans orderBy et trier côté client
+        console.warn('Index composite manquant, tri côté client:', indexError);
+        const q = query(
+          congesCollection,
+          where('statut', '==', 'en_attente')
+        );
+        const snapshot = await getDocs(q);
+        const conges = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        // Trier par dateSoumission (plus récent en premier)
+        return conges.sort((a, b) => {
+          const dateA = a.dateSoumission?.toDate ? a.dateSoumission.toDate() : new Date(a.dateSoumission || 0);
+          const dateB = b.dateSoumission?.toDate ? b.dateSoumission.toDate() : new Date(b.dateSoumission || 0);
+          return dateB - dateA; // Descendant
+        });
+      }
     } catch (error) {
       console.error('Erreur congés en attente:', error);
-      return [];
+      // Fallback: récupérer tous les congés et filtrer côté client
+      try {
+        const allConges = await congeService.getConges();
+        return allConges
+          .filter(c => c.statut === 'en_attente')
+          .sort((a, b) => {
+            const dateA = a.dateSoumission?.toDate ? a.dateSoumission.toDate() : new Date(a.dateSoumission || 0);
+            const dateB = b.dateSoumission?.toDate ? b.dateSoumission.toDate() : new Date(b.dateSoumission || 0);
+            return dateB - dateA;
+          });
+      } catch (fallbackError) {
+        console.error('Erreur fallback congés en attente:', fallbackError);
+        return [];
+      }
     }
   },
 
   // VALIDER/REFUSER UN CONGÉ
-  traiterConge: async (congeId, decision, motif = '') => {
+  traiterConge: async (congeId, decision, motif = '', traitePar = 'admin') => {
     try {
       const docRef = doc(db, 'conges', congeId);
       await updateDoc(docRef, {
         statut: decision,
-        dateTraitement: new Date(),
+        dateTraitement: serverTimestamp(),
         motifRefus: decision === 'refuse' ? motif : '',
-        traitePar: 'admin' // À remplacer par l'utilisateur connecté
+        traitePar: traitePar
       });
       return true;
     } catch (error) {
@@ -98,15 +207,27 @@ export const congeService = {
         enseignantId: enseignantId
       });
       
-      const congesApprouves = congesAnnee.filter(c => 
-        c.statut === 'approuve' && 
-        new Date(c.dateDebut).getFullYear() === annee
-      );
+      const congesApprouves = congesAnnee.filter(c => {
+        if (c.statut !== 'approuve') return false;
+        // Gérer les dates string (YYYY-MM-DD) et Date objects
+        const dateDebut = c.dateDebut instanceof Date 
+          ? c.dateDebut 
+          : new Date(c.dateDebut);
+        return dateDebut.getFullYear() === annee;
+      });
       
       const joursPris = congesApprouves.reduce((total, conge) => {
-        const dateDebut = new Date(conge.dateDebut);
-        const dateFin = new Date(conge.dateFin);
-        const jours = Math.ceil((dateFin - dateDebut) / (1000 * 60 * 60 * 24)) + 1;
+        // Gérer les dates string (YYYY-MM-DD) et Date objects
+        const dateDebut = conge.dateDebut instanceof Date 
+          ? conge.dateDebut 
+          : new Date(conge.dateDebut);
+        const dateFin = conge.dateFin instanceof Date 
+          ? conge.dateFin 
+          : new Date(conge.dateFin);
+        
+        // Calculer la différence en jours (inclusif)
+        const diffTime = dateFin.getTime() - dateDebut.getTime();
+        const jours = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
         return total + jours;
       }, 0);
       

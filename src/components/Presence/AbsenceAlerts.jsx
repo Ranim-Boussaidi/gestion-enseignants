@@ -36,41 +36,49 @@ const AbsenceAlerts = () => {
     const alerts = [];
     const today = new Date().toISOString().split('T')[0];
     
+    // Vérifier que les paramètres sont des arrays
+    if (!Array.isArray(teachers)) teachers = [];
+    if (!Array.isArray(presences)) presences = [];
+    
     // Alertes pour aujourd'hui
     if (period === 'today') {
       // Enseignants non marqués
       const nonMarkedTeachers = teachers.filter(teacher => 
-        !presences.some(p => p.enseignantId === teacher.id)
+        teacher && teacher.id && !presences.some(p => p && p.enseignantId === teacher.id)
       );
       
       nonMarkedTeachers.forEach(teacher => {
-        alerts.push({
-          id: `non-marked-${teacher.id}`,
-          type: 'warning',
-          title: 'Présence non marquée',
-          message: `${teacher.nom} ${teacher.prenom} n'a pas encore marqué sa présence aujourd'hui`,
-          teacher: teacher,
-          date: today,
-          priority: 'medium'
-        });
+        if (teacher && teacher.nom && teacher.prenom) {
+          alerts.push({
+            id: `non-marked-${teacher.id}`,
+            type: 'warning',
+            title: 'Présence non marquée',
+            message: `${teacher.nom || ''} ${teacher.prenom || ''} n'a pas encore marqué sa présence aujourd'hui`,
+            teacher: teacher,
+            date: today,
+            priority: 'medium'
+          });
+        }
       });
 
       // Enseignants absents
       const absentTeachers = presences
-        .filter(p => p.statut === 'absent')
-        .map(p => teachers.find(t => t.id === p.enseignantId))
+        .filter(p => p && p.statut === 'absent')
+        .map(p => teachers.find(t => t && t.id === p.enseignantId))
         .filter(Boolean);
 
       absentTeachers.forEach(teacher => {
-        alerts.push({
-          id: `absent-${teacher.id}`,
-          type: 'danger',
-          title: 'Absence non justifiée',
-          message: `${teacher.nom} ${teacher.prenom} est absent aujourd'hui`,
-          teacher: teacher,
-          date: today,
-          priority: 'high'
-        });
+        if (teacher && teacher.nom && teacher.prenom) {
+          alerts.push({
+            id: `absent-${teacher.id}`,
+            type: 'danger',
+            title: 'Absence non justifiée',
+            message: `${teacher.nom || ''} ${teacher.prenom || ''} est absent aujourd'hui`,
+            teacher: teacher,
+            date: today,
+            priority: 'high'
+          });
+        }
       });
     }
     
@@ -213,10 +221,10 @@ const AbsenceAlerts = () => {
               
               <div style={styles.alertDetails}>
                 <span style={styles.teacherInfo}>
-                  👨‍🏫 {alert.teacher.nom} {alert.teacher.prenom} - {alert.teacher.departement}
+                  👨‍🏫 {alert.teacher?.nom || 'N/A'} {alert.teacher?.prenom || ''} - {alert.teacher?.departement || 'N/A'}
                 </span>
                 <span style={styles.alertDate}>
-                  📅 {new Date(alert.date).toLocaleDateString('fr-FR')}
+                  📅 {alert.date ? new Date(alert.date).toLocaleDateString('fr-FR') : 'N/A'}
                 </span>
               </div>
               

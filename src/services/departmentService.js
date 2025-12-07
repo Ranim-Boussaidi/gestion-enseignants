@@ -8,7 +8,8 @@ import {
   getDocs,
   getDoc,
   query,
-  orderBy 
+  orderBy,
+  serverTimestamp 
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
@@ -46,7 +47,7 @@ export const departmentService = {
     try {
       const docRef = await addDoc(departmentsCollection, {
         ...department,
-        dateCreation: new Date(),
+        dateCreation: serverTimestamp(),
         statut: 'Actif'
       });
       return { id: docRef.id, ...department };

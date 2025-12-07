@@ -1,4 +1,3 @@
-// src/services/teacherService.js
 import { db } from '../firebase/config';
 import { 
   collection, 
@@ -10,7 +9,8 @@ import {
   getDoc,
   query,
   where,
-  orderBy 
+  orderBy,
+  serverTimestamp 
 } from 'firebase/firestore';
 
 const teachersCollection = collection(db, 'teachers');
@@ -32,11 +32,11 @@ export const teacherService = {
     return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
   },
 
-  // ADD TEACHER
+  // ADD TEACHER (pour admin)
   addTeacher: async (teacher) => {
     const docRef = await addDoc(teachersCollection, {
       ...teacher,
-      dateCreation: new Date(),
+      dateCreation: serverTimestamp(),
       statut: 'Actif'
     });
     return { id: docRef.id, ...teacher };
@@ -65,5 +65,16 @@ export const teacherService = {
       teacher.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       teacher.departement.toLowerCase().includes(searchTerm.toLowerCase())
     );
+  },
+
+  // GET TEACHER BY EMAIL (pour vérification)
+  getTeacherByEmail: async (email) => {
+    const q = query(teachersCollection, where('email', '==', email));
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      const doc = snapshot.docs[0];
+      return { id: doc.id, ...doc.data() };
+    }
+    return null;
   }
 };

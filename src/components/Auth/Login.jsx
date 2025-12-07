@@ -10,11 +10,12 @@ const Login = () => {
   const { login } = useContext(AuthContext);
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
-    if (login(email, password, 'admin')) {
+    const success = await login(email, password, 'admin');
+    if (success) {
       // Redirection vers le dashboard admin
       navigate('/admin');
     } else {
@@ -77,11 +78,7 @@ const Login = () => {
           </a>
         </div>
 
-        {/* Compte test */}
-        <div style={styles.demo}>
-          <p style={styles.demoTitle}>Compte de test :</p>
-          <p style={styles.demoAccount}>admin@ecole.com / admin123</p>
-        </div>
+        
       </div>
     </div>
   );

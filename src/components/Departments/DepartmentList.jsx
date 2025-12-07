@@ -37,14 +37,18 @@ const DepartmentList = () => {
         teacherService.getTeachers()
       ]);
       
-      setDepartments(deptsData);
-      setTeachers(teachersData);
+      setDepartments(Array.isArray(deptsData) ? deptsData : []);
+      setTeachers(Array.isArray(teachersData) ? teachersData : []);
       
       // Compter les enseignants par département
       const count = {};
-      teachersData.forEach(teacher => {
-        count[teacher.departement] = (count[teacher.departement] || 0) + 1;
-      });
+      if (Array.isArray(teachersData)) {
+        teachersData.forEach(teacher => {
+          if (teacher && teacher.departement) {
+            count[teacher.departement] = (count[teacher.departement] || 0) + 1;
+          }
+        });
+      }
       setTeachersCount(count);
       
       console.log('📊 Données chargées:', {

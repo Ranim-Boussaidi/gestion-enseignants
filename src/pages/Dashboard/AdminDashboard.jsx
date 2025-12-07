@@ -8,11 +8,11 @@ import PresenceChart from '../../components/Dashboard/PresenceChart';
 import RecentActivity from '../../components/Dashboard/RecentActivity';
 import QuickActions from '../../components/Dashboard/QuickActions';
 import DepartmentList from '../../components/Departments/DepartmentList';
-import PresenceTracker from '../../components/Presence/PresenceTracker';
-import PresenceCalendar from '../../components/Presence/PresenceCalendar';
-import PresenceStats from '../../components/Presence/PresenceStats';
-import AbsenceAlerts from '../../components/Presence/AbsenceAlerts';
+import AdminPresenceManagement from '../../components/Presence/AdminPresenceManagement';
 import CongeList from '../../components/Conges/CongeList';
+import CongeValidation from '../../components/Conges/CongeValidation';
+import FinanceManagement from '../../components/Finance/FinanceManagement';
+import CourseManagement from '../../components/Courses/CourseManagement';
 
 const AdminDashboard = () => {
   const { user, logout } = useContext(AuthContext);
@@ -26,13 +26,15 @@ const AdminDashboard = () => {
       case 'teachers':
         return <TeacherList />;
       case 'presence':
-       return <PresenceTracker />;
+        return <AdminPresenceManagement />;
       case 'conges':
-        return <CongeList />;
+        return <CongeValidation />;
       case 'finance':
-        return <div style={styles.contentPlaceholder}>💰 Gestion Financière - Bientôt disponible</div>;
+        return <FinanceManagement />;
+      case 'courses':
+        return <CourseManagement />;
       case 'departments':
-          return <DepartmentList />;
+        return <DepartmentList />;
       case 'reports':
         return <div style={styles.contentPlaceholder}>📈 Rapports - Bientôt disponible</div>;
       case 'settings':
@@ -80,8 +82,9 @@ const getSectionTitle = (section) => {
     dashboard: 'Tableau de Bord',
     teachers: 'Gestion des Enseignants',
     presence: 'Gestion des Présences',
-    conges: 'Gestion des Congés',
+    conges: 'Validation des Congés',
     finance: 'Gestion Financière',
+    courses: 'Cours & Examens',
     departments: 'Gestion des Départements',
     reports: 'Rapports et Statistiques',
     settings: 'Paramètres'
@@ -222,10 +225,6 @@ const styles = {
     fontWeight: '500',
     transition: 'all 0.3s ease'
   },
-  logoutButtonHover: {
-    background: '#c82333',
-    transform: 'translateY(-1px)'
-  },
   content: {
     padding: '30px 40px',
     minHeight: 'calc(100vh - 100px)'
@@ -324,23 +323,5 @@ const styles = {
   }
 };
 
-// Ajout d'effets hover interactifs
-const addHoverEffects = () => {
-  // Effet pour le bouton de déconnexion
-  const logoutButton = document.querySelector('[style*="background: #dc3545"]');
-  if (logoutButton) {
-    logoutButton.addEventListener('mouseenter', function() {
-      this.style.background = '#c82333';
-      this.style.transform = 'translateY(-1px)';
-    });
-    logoutButton.addEventListener('mouseleave', function() {
-      this.style.background = '#dc3545';
-      this.style.transform = 'translateY(0)';
-    });
-  }
-};
-
-// Appliquer les effets après le rendu
-setTimeout(addHoverEffects, 1000);
 
 export default AdminDashboard;

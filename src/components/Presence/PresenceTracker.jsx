@@ -1,92 +1,100 @@
 // src/components/Presence/PresenceTracker.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
+import { AuthContext } from '../../context/AuthContext';
 import { presenceService } from '../../services/presenceService';
-import { teacherService } from '../../services/teacherService';
 
 const PresenceTracker = () => {
-  const [teachers, setTeachers] = useState([]);
-  const [todayPresences, setTodayPresences] = useState({});
+  const { user } = useContext(AuthContext);
+  const [todayPresence, setTodayPresence] = useState(null);
+  const [presenceHistory, setPresenceHistory] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [marking, setMarking] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
 
   useEffect(() => {
-    loadData();
-  }, [selectedDate]);
+    loadPresenceData();
+  }, [selectedMonth, user]);
 
-  const loadData = async () => {
+  const loadPresenceData = async () => {
+    if (!user?.uid) return;
+    
     setLoading(true);
     try {
-      const [teachersData, presencesData] = await Promise.all([
-        teacherService.getTeachers(),
-        presenceService.getPresencesByDateRange(selectedDate, selectedDate)
+      const today = new Date().toISOString().split('T')[0];
+      const [todayData, historyData] = await Promise.all([
+        presenceService.getPresenceByDateAndTeacher(user.uid, today),
+        presenceService.getPresencesByTeacher(user.uid, selectedMonth)
       ]);
       
-      setTeachers(teachersData);
-      
-      // Convertir les présences en objet pour accès rapide
-      const presencesMap = {};
-      presencesData.forEach(presence => {
-        presencesMap[presence.enseignantId] = presence;
-      });
-      setTodayPresences(presencesMap);
+      setTodayPresence(todayData);
+      setPresenceHistory(historyData || []);
     } catch (error) {
-      console.error('Erreur chargement:', error);
+      console.error('Erreur chargement présences:', error);
     }
     setLoading(false);
   };
 
-  const handlePresenceChange = async (teacherId, statut) => {
+  const markPresence = async (statut = 'present') => {
+    if (!user?.uid) return;
+    
+    setMarking(true);
     try {
-      const presenceData = {
-        enseignantId: teacherId,
-        enseignantNom: teachers.find(t => t.id === teacherId)?.nom,
-        enseignantPrenom: teachers.find(t => t.id === teacherId)?.prenom,
-        date: selectedDate,
-        statut: statut,
-        heureArrivee: statut === 'present' ? new Date().toLocaleTimeString('fr-FR', { 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        }) : null
-      };
-
-      await presenceService.markPresence(presenceData);
+      const today = new Date().toISOString().split('T')[0];
+      const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
       
-      // Mettre à jour l'état local
-      setTodayPresences(prev => ({
-        ...prev,
-        [teacherId]: presenceData
-      }));
-
-      // Notifier les autres composants
-      window.dispatchEvent(new Event('presencesUpdated'));
+      await presenceService.markPresence({
+        enseignantId: user.uid,
+        enseignantNom: user.nom,
+        enseignantPrenom: user.prenom,
+        date: today,
+        heure: now,
+        statut: statut,
+        departement: user.departement
+      });
+      
+      await loadPresenceData();
+      alert('✅ Présence enregistrée avec succès!');
     } catch (error) {
       console.error('Erreur marquage présence:', error);
-      alert('Erreur lors du marquage de la présence');
+      alert('❌ Erreur lors de l\'enregistrement de la présence');
     }
+    setMarking(false);
   };
 
   const getStatusColor = (statut) => {
-    switch (statut) {
+    switch(statut) {
       case 'present': return '#28a745';
       case 'absent': return '#dc3545';
-      case 'conge': return '#ffc107';
+      case 'retard': return '#ffc107';
+      case 'conge': return '#17a2b8';
       default: return '#6c757d';
     }
   };
 
-  const getStatusText = (statut) => {
-    switch (statut) {
-      case 'present': return '🟢 Présent';
-      case 'absent': return '🔴 Absent';
-      case 'conge': return '🟡 Congé';
-      default: return '⚪ Non marqué';
+  const getStatusLabel = (statut) => {
+    switch(statut) {
+      case 'present': return 'Présent';
+      case 'absent': return 'Absent';
+      case 'retard': return 'En retard';
+      case 'conge': return 'Congé';
+      default: return 'Non défini';
     }
+  };
+
+  const stats = {
+    total: presenceHistory.length,
+    presents: presenceHistory.filter(p => p.statut === 'present').length,
+    absents: presenceHistory.filter(p => p.statut === 'absent').length,
+    retards: presenceHistory.filter(p => p.statut === 'retard').length,
+    taux: presenceHistory.length > 0 
+      ? Math.round((presenceHistory.filter(p => p.statut === 'present').length / presenceHistory.length) * 100)
+      : 0
   };
 
   if (loading) {
     return (
       <div style={styles.container}>
-        <div style={styles.loading}>Chargement des présences...</div>
+        <div style={styles.loading}>Chargement...</div>
       </div>
     );
   }
@@ -95,123 +103,123 @@ const PresenceTracker = () => {
     <div style={styles.container}>
       {/* Header */}
       <div style={styles.header}>
-        <div style={styles.headerLeft}>
-          <h2 style={styles.title}>📅 Suivi des Présences</h2>
-          <p style={styles.subTitle}>
-            {teachers.length} enseignant(s) - {selectedDate}
-          </p>
+        <div>
+          <h2 style={styles.title}>📍 Gestion des Présences</h2>
+          <p style={styles.subtitle}>Pointage quotidien et historique</p>
         </div>
-        <div style={styles.headerRight}>
+        <div style={styles.monthSelector}>
           <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            style={styles.dateInput}
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            style={styles.monthInput}
           />
-          <button 
-            style={styles.refreshButton}
-            onClick={loadData}
-          >
-            🔄 Actualiser
-          </button>
         </div>
       </div>
 
-      {/* Statistiques rapides */}
-      <div style={styles.stats}>
-        <div style={styles.stat}>
-          <span style={styles.statNumber}>
-            {Object.values(todayPresences).filter(p => p.statut === 'present').length}
-          </span>
-          <span style={styles.statLabel}>Présents</span>
-        </div>
-        <div style={styles.stat}>
-          <span style={styles.statNumber}>
-            {Object.values(todayPresences).filter(p => p.statut === 'absent').length}
-          </span>
-          <span style={styles.statLabel}>Absents</span>
-        </div>
-        <div style={styles.stat}>
-          <span style={styles.statNumber}>
-            {Object.values(todayPresences).filter(p => p.statut === 'conge').length}
-          </span>
-          <span style={styles.statLabel}>Congés</span>
-        </div>
-        <div style={styles.stat}>
-          <span style={styles.statNumber}>
-            {teachers.length - Object.keys(todayPresences).length}
-          </span>
-          <span style={styles.statLabel}>Non marqués</span>
-        </div>
-      </div>
-
-      {/* Liste des enseignants */}
-      <div style={styles.teachersList}>
-        {teachers.map(teacher => {
-          const presence = todayPresences[teacher.id];
-          const currentStatus = presence?.statut || 'non_marque';
-          
-          return (
-            <div key={teacher.id} style={styles.teacherCard}>
-              <div style={styles.teacherInfo}>
-                <h4 style={styles.teacherName}>
-                  {teacher.nom} {teacher.prenom}
-                </h4>
-                <p style={styles.teacherDepartment}>{teacher.departement}</p>
-                {presence?.heureArrivee && (
-                  <p style={styles.arrivalTime}>🕐 {presence.heureArrivee}</p>
-                )}
+      {/* Présence du jour */}
+      <div style={styles.todaySection}>
+        <h3 style={styles.sectionTitle}>📅 Aujourd'hui</h3>
+        {todayPresence ? (
+          <div style={styles.todayCard}>
+            <div style={styles.todayStatus}>
+              <div style={{
+                ...styles.statusBadge,
+                background: getStatusColor(todayPresence.statut)
+              }}>
+                {getStatusLabel(todayPresence.statut)}
               </div>
-              
-              <div style={styles.statusSection}>
-                <span style={{
-                  ...styles.currentStatus,
-                  color: getStatusColor(currentStatus)
-                }}>
-                  {getStatusText(currentStatus)}
-                </span>
-                
-                <div style={styles.actions}>
-                  <button
-                    style={{
-                      ...styles.statusButton,
-                      ...(currentStatus === 'present' ? styles.statusButtonActive : {})
-                    }}
-                    onClick={() => handlePresenceChange(teacher.id, 'present')}
-                  >
-                    ✅ Présent
-                  </button>
-                  <button
-                    style={{
-                      ...styles.statusButton,
-                      ...(currentStatus === 'absent' ? styles.statusButtonActive : {})
-                    }}
-                    onClick={() => handlePresenceChange(teacher.id, 'absent')}
-                  >
-                    ❌ Absent
-                  </button>
-                  <button
-                    style={{
-                      ...styles.statusButton,
-                      ...(currentStatus === 'conge' ? styles.statusButtonActive : {})
-                    }}
-                    onClick={() => handlePresenceChange(teacher.id, 'conge')}
-                  >
-                    🏖️ Congé
-                  </button>
-                </div>
+              <div style={styles.todayInfo}>
+                <p style={styles.todayTime}>Heure: {todayPresence.heure || 'N/A'}</p>
+                <p style={styles.todayDate}>Date: {new Date(todayPresence.date).toLocaleDateString('fr-FR')}</p>
               </div>
             </div>
-          );
-        })}
+            <p style={styles.alreadyMarked}>✅ Présence déjà enregistrée</p>
+          </div>
+        ) : (
+          <div style={styles.todayCard}>
+            <p style={styles.noPresence}>Aucune présence enregistrée aujourd'hui</p>
+            <div style={styles.actionButtons}>
+              <button 
+                style={{...styles.markButton, ...styles.presentButton}}
+                onClick={() => markPresence('present')}
+                disabled={marking}
+              >
+                {marking ? '⏳ Enregistrement...' : '✅ Marquer Présent'}
+              </button>
+              <button 
+                style={{...styles.markButton, ...styles.retardButton}}
+                onClick={() => markPresence('retard')}
+                disabled={marking}
+              >
+                {marking ? '⏳ Enregistrement...' : '⏰ Marquer Retard'}
+              </button>
+              <button 
+                style={{...styles.markButton, ...styles.absentButton}}
+                onClick={() => markPresence('absent')}
+                disabled={marking}
+              >
+                {marking ? '⏳ Enregistrement...' : '❌ Marquer Absent'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {teachers.length === 0 && (
-        <div style={styles.empty}>
-          <h3>👨‍🏫 Aucun enseignant trouvé</h3>
-          <p>Ajoutez des enseignants pour pouvoir suivre leurs présences.</p>
+      {/* Statistiques */}
+      <div style={styles.statsGrid}>
+        <div style={styles.statCard}>
+          <div style={styles.statIcon}>📊</div>
+          <div style={styles.statNumber}>{stats.total}</div>
+          <div style={styles.statLabel}>Jours total</div>
         </div>
-      )}
+        <div style={styles.statCard}>
+          <div style={styles.statIcon}>✅</div>
+          <div style={styles.statNumber}>{stats.presents}</div>
+          <div style={styles.statLabel}>Présents</div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={styles.statIcon}>❌</div>
+          <div style={styles.statNumber}>{stats.absents}</div>
+          <div style={styles.statLabel}>Absents</div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={styles.statIcon}>📈</div>
+          <div style={styles.statNumber}>{stats.taux}%</div>
+          <div style={styles.statLabel}>Taux de présence</div>
+        </div>
+      </div>
+
+      {/* Historique */}
+      <div style={styles.historySection}>
+        <h3 style={styles.sectionTitle}>📋 Historique du mois</h3>
+        {presenceHistory.length > 0 ? (
+          <div style={styles.historyList}>
+            {presenceHistory.map((presence, index) => (
+              <div key={presence.id || index} style={styles.historyItem}>
+                <div style={styles.historyDate}>
+                  {new Date(presence.date).toLocaleDateString('fr-FR', { 
+                    weekday: 'short', 
+                    day: 'numeric', 
+                    month: 'short' 
+                  })}
+                </div>
+                <div style={styles.historyTime}>{presence.heure || 'N/A'}</div>
+                <div style={{
+                  ...styles.historyStatus,
+                  background: getStatusColor(presence.statut)
+                }}>
+                  {getStatusLabel(presence.statut)}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={styles.emptyHistory}>
+            <p>Aucune présence enregistrée pour ce mois</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -226,142 +234,188 @@ const styles = {
   header: {
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: '30px',
-    borderBottom: '2px solid #f0f0f0',
-    paddingBottom: '20px'
-  },
-  headerLeft: {
-    flex: 1
+    flexWrap: 'wrap',
+    gap: '20px'
   },
   title: {
-    margin: 0,
+    margin: '0 0 5px 0',
     color: '#333',
     fontSize: '24px',
     fontWeight: 'bold'
   },
-  subTitle: {
-    margin: '5px 0 0 0',
-    color: '#666',
-    fontSize: '14px'
-  },
-  headerRight: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '15px'
-  },
-  dateInput: {
-    padding: '8px 12px',
-    border: '1px solid #ddd',
-    borderRadius: '6px',
-    fontSize: '14px'
-  },
-  refreshButton: {
-    background: '#6c757d',
-    color: 'white',
-    border: 'none',
-    padding: '8px 15px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '13px'
-  },
-  stats: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-    gap: '15px',
-    marginBottom: '30px'
-  },
-  stat: {
-    background: '#f8f9fa',
-    padding: '15px',
-    borderRadius: '8px',
-    textAlign: 'center',
-    border: '1px solid #e9ecef'
-  },
-  statNumber: {
-    display: 'block',
-    fontSize: '24px',
-    fontWeight: 'bold',
-    color: '#5784BA',
-    marginBottom: '5px'
-  },
-  statLabel: {
-    color: '#666',
-    fontSize: '12px',
-    fontWeight: '500'
-  },
-  teachersList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '15px'
-  },
-  teacherCard: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '20px',
-    border: '1px solid #e9ecef',
-    borderRadius: '8px',
-    background: '#fafafa',
-    transition: 'all 0.3s ease'
-  },
-  teacherInfo: {
-    flex: 1
-  },
-  teacherName: {
-    margin: '0 0 5px 0',
-    color: '#333',
-    fontSize: '16px',
-    fontWeight: '600'
-  },
-  teacherDepartment: {
+  subtitle: {
     margin: 0,
     color: '#666',
     fontSize: '14px'
   },
-  arrivalTime: {
-    margin: '5px 0 0 0',
-    color: '#888',
-    fontSize: '12px'
-  },
-  statusSection: {
+  monthSelector: {
     display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     gap: '10px'
   },
-  currentStatus: {
-    fontSize: '14px',
-    fontWeight: '600'
-  },
-  actions: {
-    display: 'flex',
-    gap: '8px'
-  },
-  statusButton: {
+  monthInput: {
     padding: '8px 12px',
     border: '1px solid #ddd',
     borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '12px',
+    fontSize: '14px'
+  },
+  todaySection: {
+    marginBottom: '30px'
+  },
+  sectionTitle: {
+    margin: '0 0 15px 0',
+    color: '#333',
+    fontSize: '18px',
+    fontWeight: '600'
+  },
+  todayCard: {
+    background: '#f8f9fa',
+    padding: '25px',
+    borderRadius: '10px',
+    border: '1px solid #e9ecef'
+  },
+  todayStatus: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '20px',
+    marginBottom: '15px'
+  },
+  statusBadge: {
+    padding: '8px 16px',
+    borderRadius: '20px',
+    color: 'white',
+    fontWeight: '600',
+    fontSize: '14px'
+  },
+  todayInfo: {
+    flex: 1
+  },
+  todayTime: {
+    margin: '5px 0',
+    color: '#333',
+    fontSize: '14px',
+    fontWeight: '500'
+  },
+  todayDate: {
+    margin: '5px 0',
+    color: '#666',
+    fontSize: '13px'
+  },
+  alreadyMarked: {
+    margin: 0,
+    color: '#28a745',
+    fontWeight: '500'
+  },
+  noPresence: {
+    margin: '0 0 20px 0',
+    color: '#666',
+    fontSize: '14px'
+  },
+  actionButtons: {
+    display: 'flex',
+    gap: '10px',
+    flexWrap: 'wrap'
+  },
+  markButton: {
+    flex: 1,
+    minWidth: '150px',
+    padding: '12px 20px',
+    border: 'none',
+    borderRadius: '6px',
+    color: 'white',
+    fontSize: '14px',
     fontWeight: '500',
-    background: 'white',
+    cursor: 'pointer',
     transition: 'all 0.3s ease'
   },
-  statusButtonActive: {
-    background: '#5784BA',
-    color: 'white',
-    borderColor: '#5784BA'
+  presentButton: {
+    background: '#28a745'
   },
-  empty: {
+  retardButton: {
+    background: '#ffc107',
+    color: '#333'
+  },
+  absentButton: {
+    background: '#dc3545'
+  },
+  statsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+    gap: '20px',
+    marginBottom: '30px'
+  },
+  statCard: {
+    background: '#f8f9fa',
+    padding: '20px',
+    borderRadius: '10px',
+    textAlign: 'center',
+    border: '1px solid #e9ecef'
+  },
+  statIcon: {
+    fontSize: '30px',
+    marginBottom: '10px'
+  },
+  statNumber: {
+    fontSize: '28px',
+    fontWeight: 'bold',
+    color: '#1a7c4d',
+    marginBottom: '5px'
+  },
+  statLabel: {
+    fontSize: '12px',
+    color: '#666',
+    fontWeight: '500'
+  },
+  historySection: {
+    marginTop: '30px'
+  },
+  historyList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px'
+  },
+  historyItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '15px',
+    padding: '15px',
+    background: '#f8f9fa',
+    borderRadius: '8px',
+    border: '1px solid #e9ecef'
+  },
+  historyDate: {
+    minWidth: '120px',
+    fontWeight: '500',
+    color: '#333',
+    fontSize: '14px'
+  },
+  historyTime: {
+    minWidth: '80px',
+    color: '#666',
+    fontSize: '13px'
+  },
+  historyStatus: {
+    marginLeft: 'auto',
+    padding: '6px 12px',
+    borderRadius: '20px',
+    color: 'white',
+    fontSize: '12px',
+    fontWeight: '500'
+  },
+  emptyHistory: {
     textAlign: 'center',
     padding: '40px',
-    color: '#666'
+    color: '#666',
+    background: '#f8f9fa',
+    borderRadius: '8px'
   },
   loading: {
     textAlign: 'center',
     padding: '40px',
-    color: '#666'
+    color: '#666',
+    fontSize: '16px'
   }
 };
 

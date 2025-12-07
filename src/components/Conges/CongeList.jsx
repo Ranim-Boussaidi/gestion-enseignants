@@ -1,111 +1,94 @@
 // src/components/Conges/CongeList.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
+import { AuthContext } from '../../context/AuthContext';
 import { congeService } from '../../services/congeService';
-import { teacherService } from '../../services/teacherService';
 import CongeForm from './CongeForm';
 import SoldeConge from './SoldeConge';
 
 const CongeList = () => {
+  const { user } = useContext(AuthContext);
   const [conges, setConges] = useState([]);
-  const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [selectedConge, setSelectedConge] = useState(null);
-  const [filters, setFilters] = useState({
-    statut: '',
-    enseignantId: '',
-    typeConge: '',
-    dateDebut: '',
-    dateFin: ''
-  });
-  const [stats, setStats] = useState({});
+  const [filter, setFilter] = useState('all'); // all, en_attente, approuve, refuse
 
-  useEffect(() => {
-    loadData();
-  }, [filters]);
-
-  const loadData = async () => {
+  // Mémoriser la fonction loadConges avec useCallback
+  const loadConges = useCallback(async () => {
+    if (!user?.uid) return;
+    
     setLoading(true);
     try {
-      const [congesData, teachersData, statsData] = await Promise.all([
-        congeService.getConges(filters),
-        teacherService.getTeachers(),
-        congeService.getStatsConges()
-      ]);
-      
-      setConges(congesData);
-      setTeachers(teachersData);
-      setStats(statsData);
+      const filters = { enseignantId: user.uid };
+      if (filter !== 'all') {
+        filters.statut = filter;
+      }
+      const data = await congeService.getConges(filters);
+      console.log('Congés chargés pour l\'enseignant:', data?.length || 0, data);
+      setConges(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.error('Erreur chargement:', error);
+      console.error('Erreur chargement congés:', error);
+      setConges([]);
     }
     setLoading(false);
-  };
+  }, [user?.uid, filter]);
 
-  const handleAddClick = () => {
-    setSelectedConge(null);
-    setShowForm(true);
-  };
+  useEffect(() => {
+    if (user?.uid) {
+      loadConges();
+    }
+  }, [user?.uid, filter, loadConges]);
 
-  const handleEdit = (conge) => {
-    setSelectedConge(conge);
-    setShowForm(true);
-  };
+  // Écouter les événements de mise à jour des congés (quand l'admin valide/refuse)
+  useEffect(() => {
+    if (!user?.uid) return;
+    
+    const handleCongesUpdate = () => {
+      console.log('Événement congesUpdated reçu, rafraîchissement de la liste des congés...');
+      // Recharger les congés pour voir les mises à jour
+      // Utiliser une temporisation pour s'assurer que Firestore a mis à jour
+      setTimeout(() => {
+        loadConges();
+      }, 1000); // Augmenter à 1 seconde pour laisser le temps à Firestore
+    };
+    
+    window.addEventListener('congesUpdated', handleCongesUpdate);
+    
+    // Rafraîchissement automatique toutes les 30 secondes pour détecter les changements
+    const intervalId = setInterval(() => {
+      console.log('Rafraîchissement automatique de la liste des congés...');
+      loadConges();
+    }, 30000);
+    
+    return () => {
+      window.removeEventListener('congesUpdated', handleCongesUpdate);
+      clearInterval(intervalId);
+    };
+  }, [user?.uid, loadConges]); // Utiliser loadConges mémorisé
 
   const handleFormClose = () => {
     setShowForm(false);
-    setSelectedConge(null);
-    loadData();
-  };
-
-  const handleDelete = async (id) => {
-    if (window.confirm('Êtes-vous sûr de vouloir supprimer cette demande de congé ?')) {
-      try {
-        await congeService.deleteConge(id);
-        loadData();
-      } catch (error) {
-        console.error('Erreur suppression:', error);
-        alert('Erreur lors de la suppression de la demande');
-      }
-    }
-  };
-
-  const handleFilterChange = (key, value) => {
-    setFilters(prev => ({
-      ...prev,
-      [key]: value
-    }));
-  };
-
-  const resetFilters = () => {
-    setFilters({
-      statut: '',
-      enseignantId: '',
-      typeConge: '',
-      dateDebut: '',
-      dateFin: ''
-    });
+    loadConges();
   };
 
   const getStatusColor = (statut) => {
-    switch (statut) {
+    switch(statut) {
       case 'approuve': return '#28a745';
-      case 'en_attente': return '#ffc107';
       case 'refuse': return '#dc3545';
+      case 'en_attente': return '#ffc107';
       default: return '#6c757d';
     }
   };
 
-  const getStatusText = (statut) => {
-    switch (statut) {
+  const getStatusLabel = (statut) => {
+    switch(statut) {
       case 'approuve': return '✅ Approuvé';
-      case 'en_attente': return '⏳ En attente';
       case 'refuse': return '❌ Refusé';
-      default: return '⚪ Inconnu';
+      case 'en_attente': return '⏳ En attente';
+      default: return 'Non défini';
     }
   };
 
-  const getTypeCongeText = (type) => {
+  const getTypeLabel = (type) => {
     const types = {
       'annuel': '🏖️ Congé Annuel',
       'maladie': '🏥 Congé Maladie',
@@ -117,22 +100,18 @@ const CongeList = () => {
     return types[type] || type;
   };
 
-  const calculateJours = (dateDebut, dateFin) => {
-    const debut = new Date(dateDebut);
-    const fin = new Date(dateFin);
-    return Math.ceil((fin - debut) / (1000 * 60 * 60 * 24)) + 1;
+  const calculateDays = (dateDebut, dateFin) => {
+    if (!dateDebut || !dateFin) return 0;
+    const debut = dateDebut instanceof Date ? dateDebut : new Date(dateDebut);
+    const fin = dateFin instanceof Date ? dateFin : new Date(dateFin);
+    const diffTime = fin.getTime() - debut.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
   };
-
-  const filteredConges = conges.filter(conge => {
-    if (filters.dateDebut && new Date(conge.dateDebut) < new Date(filters.dateDebut)) return false;
-    if (filters.dateFin && new Date(conge.dateFin) > new Date(filters.dateFin)) return false;
-    return true;
-  });
 
   if (loading) {
     return (
       <div style={styles.container}>
-        <div style={styles.loading}>Chargement des demandes de congé...</div>
+        <div style={styles.loading}>Chargement...</div>
       </div>
     );
   }
@@ -141,245 +120,145 @@ const CongeList = () => {
     <div style={styles.container}>
       {/* Header */}
       <div style={styles.header}>
-        <div style={styles.headerLeft}>
-          <h2 style={styles.title}>🏖️ Gestion des Congés</h2>
-          <p style={styles.subTitle}>
-            {filteredConges.length} demande(s) de congé
-          </p>
+        <div>
+          <h2 style={styles.title}>🏖️ Mes Congés</h2>
+          <p style={styles.subtitle}>Gérez vos demandes de congé</p>
         </div>
         <div style={styles.headerActions}>
           <button 
+            style={styles.refreshButton}
+            onClick={loadConges}
+            title="Actualiser la liste"
+          >
+            🔄 Actualiser
+          </button>
+          <button 
             style={styles.addButton}
-            onClick={handleAddClick}
+            onClick={() => setShowForm(true)}
           >
             ➕ Nouvelle demande
           </button>
         </div>
       </div>
 
-      {/* Statistiques */}
-      <div style={styles.stats}>
-        <div style={styles.stat}>
-          <span style={styles.statNumber}>{stats.total || 0}</span>
-          <span style={styles.statLabel}>Total demandes</span>
-        </div>
-        <div style={styles.stat}>
-          <span style={styles.statNumber}>{stats.enAttente || 0}</span>
-          <span style={styles.statLabel}>En attente</span>
-        </div>
-        <div style={styles.stat}>
-          <span style={styles.statNumber}>{stats.approuves || 0}</span>
-          <span style={styles.statLabel}>Approuvés</span>
-        </div>
-        <div style={styles.stat}>
-          <span style={styles.statNumber}>{stats.tauxValidation || 0}%</span>
-          <span style={styles.statLabel}>Taux validation</span>
-        </div>
-      </div>
+      {/* Solde de congé */}
+      <SoldeConge enseignantId={user?.uid} />
 
       {/* Filtres */}
-      <div style={styles.filtersSection}>
-        <h4 style={styles.filtersTitle}>🔍 Filtres</h4>
-        <div style={styles.filtersGrid}>
-          <div style={styles.filterGroup}>
-            <label style={styles.filterLabel}>Statut</label>
-            <select
-              value={filters.statut}
-              onChange={(e) => handleFilterChange('statut', e.target.value)}
-              style={styles.filterInput}
-            >
-              <option value="">Tous les statuts</option>
-              <option value="en_attente">En attente</option>
-              <option value="approuve">Approuvé</option>
-              <option value="refuse">Refusé</option>
-            </select>
-          </div>
-
-          <div style={styles.filterGroup}>
-            <label style={styles.filterLabel}>Enseignant</label>
-            <select
-              value={filters.enseignantId}
-              onChange={(e) => handleFilterChange('enseignantId', e.target.value)}
-              style={styles.filterInput}
-            >
-              <option value="">Tous les enseignants</option>
-              {teachers.map(teacher => (
-                <option key={teacher.id} value={teacher.id}>
-                  {teacher.nom} {teacher.prenom}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={styles.filterGroup}>
-            <label style={styles.filterLabel}>Type de congé</label>
-            <select
-              value={filters.typeConge}
-              onChange={(e) => handleFilterChange('typeConge', e.target.value)}
-              style={styles.filterInput}
-            >
-              <option value="">Tous les types</option>
-              <option value="annuel">Congé Annuel</option>
-              <option value="maladie">Congé Maladie</option>
-              <option value="maternite">Congé Maternité</option>
-              <option value="paternite">Congé Paternité</option>
-              <option value="exceptionnel">Congé Exceptionnel</option>
-              <option value="sans_solde">Congé Sans Solde</option>
-            </select>
-          </div>
-
-          <div style={styles.filterGroup}>
-            <label style={styles.filterLabel}>Date début</label>
-            <input
-              type="date"
-              value={filters.dateDebut}
-              onChange={(e) => handleFilterChange('dateDebut', e.target.value)}
-              style={styles.filterInput}
-            />
-          </div>
-
-          <div style={styles.filterGroup}>
-            <label style={styles.filterLabel}>Date fin</label>
-            <input
-              type="date"
-              value={filters.dateFin}
-              onChange={(e) => handleFilterChange('dateFin', e.target.value)}
-              style={styles.filterInput}
-            />
-          </div>
-
-          {(filters.statut || filters.enseignantId || filters.typeConge || filters.dateDebut || filters.dateFin) && (
-            <div style={styles.filterGroup}>
-              <label style={styles.filterLabel}>&nbsp;</label>
-              <button 
-                style={styles.resetButton}
-                onClick={resetFilters}
-              >
-                🔄 Réinitialiser
-              </button>
-            </div>
-          )}
-        </div>
+      <div style={styles.filters}>
+        <button
+          style={{
+            ...styles.filterButton,
+            ...(filter === 'all' && styles.filterButtonActive)
+          }}
+          onClick={() => setFilter('all')}
+        >
+          Tous ({conges.length})
+        </button>
+        <button
+          style={{
+            ...styles.filterButton,
+            ...(filter === 'en_attente' && styles.filterButtonActive)
+          }}
+          onClick={() => setFilter('en_attente')}
+        >
+          En attente ({conges.filter(c => c.statut === 'en_attente').length})
+        </button>
+        <button
+          style={{
+            ...styles.filterButton,
+            ...(filter === 'approuve' && styles.filterButtonActive)
+          }}
+          onClick={() => setFilter('approuve')}
+        >
+          Approuvés ({conges.filter(c => c.statut === 'approuve').length})
+        </button>
+        <button
+          style={{
+            ...styles.filterButton,
+            ...(filter === 'refuse' && styles.filterButtonActive)
+          }}
+          onClick={() => setFilter('refuse')}
+        >
+          Refusés ({conges.filter(c => c.statut === 'refuse').length})
+        </button>
       </div>
 
       {/* Liste des congés */}
       <div style={styles.congesList}>
-        {filteredConges.length > 0 ? (
-          filteredConges.map(conge => {
-            const jours = calculateJours(conge.dateDebut?.toDate?.() || conge.dateDebut, conge.dateFin?.toDate?.() || conge.dateFin);
-            
+        {conges.length > 0 ? (
+          conges.map((conge, index) => {
+            const jours = calculateDays(conge.dateDebut, conge.dateFin);
+            const dateDebut = conge.dateDebut instanceof Date 
+              ? conge.dateDebut 
+              : new Date(conge.dateDebut);
+            const dateFin = conge.dateFin instanceof Date 
+              ? conge.dateFin 
+              : new Date(conge.dateFin);
+
             return (
-              <div key={conge.id} style={styles.congeCard}>
-                <div style={styles.congeHeader}>
-                  <div style={styles.congeInfo}>
-                    <h4 style={styles.enseignantName}>
-                      {conge.enseignantNom} {conge.enseignantPrenom}
-                    </h4>
-                    <p style={styles.congeType}>
-                      {getTypeCongeText(conge.typeConge)}
+              <div key={conge.id || index} style={styles.congeCard}>
+                <div style={styles.cardHeader}>
+                  <div style={styles.cardLeft}>
+                    <h4 style={styles.congeType}>{getTypeLabel(conge.typeConge)}</h4>
+                    <p style={styles.congeDates}>
+                      {dateDebut.toLocaleDateString('fr-FR')} → {dateFin.toLocaleDateString('fr-FR')}
                     </p>
+                    <p style={styles.congeDuration}>{jours} jour{jours > 1 ? 's' : ''}</p>
                   </div>
-                  <div style={styles.congeStatus}>
-                    <span style={{
-                      ...styles.statusBadge,
-                      background: getStatusColor(conge.statut)
-                    }}>
-                      {getStatusText(conge.statut)}
-                    </span>
+                  <div style={{
+                    ...styles.statusBadge,
+                    background: getStatusColor(conge.statut || 'en_attente')
+                  }}>
+                    {getStatusLabel(conge.statut || 'en_attente')}
                   </div>
                 </div>
-
-                <div style={styles.congeDetails}>
-                  <div style={styles.dates}>
-                    <span style={styles.dateRange}>
-                      📅 {new Date(conge.dateDebut?.toDate?.() || conge.dateDebut).toLocaleDateString('fr-FR')} 
-                      → {new Date(conge.dateFin?.toDate?.() || conge.dateFin).toLocaleDateString('fr-FR')}
-                    </span>
-                    <span style={styles.duration}>
-                      ({jours} jour{jours > 1 ? 's' : ''})
-                    </span>
+                
+                <div style={styles.cardBody}>
+                  <div style={styles.motifSection}>
+                    <strong>Motif:</strong>
+                    <p style={styles.motif}>{conge.motif || 'Non spécifié'}</p>
                   </div>
-
-                  {conge.motif && (
-                    <p style={styles.motif}>
-                      <strong>Motif:</strong> {conge.motif}
-                    </p>
-                  )}
-
-                  {conge.motifRefus && conge.statut === 'refuse' && (
-                    <p style={styles.motifRefus}>
-                      <strong>Motif du refus:</strong> {conge.motifRefus}
-                    </p>
-                  )}
-
-                  <div style={styles.metaInfo}>
-                    <span style={styles.submissionDate}>
-                      📋 Soumis le: {new Date(conge.dateSoumission?.toDate?.() || conge.dateSoumission).toLocaleDateString('fr-FR')}
-                    </span>
-                    {conge.dateTraitement && (
-                      <span style={styles.treatmentDate}>
-                        ⚡ Traité le: {new Date(conge.dateTraitement?.toDate?.() || conge.dateTraitement).toLocaleDateString('fr-FR')}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div style={styles.congeActions}>
-                  {conge.statut === 'en_attente' && (
-                    <>
-                      <button 
-                        style={styles.editButton}
-                        onClick={() => handleEdit(conge)}
-                        title="Modifier"
-                      >
-                        ✏️ Modifier
-                      </button>
-                      <button 
-                        style={styles.deleteButton}
-                        onClick={() => handleDelete(conge.id)}
-                        title="Supprimer"
-                      >
-                        🗑️ Supprimer
-                      </button>
-                    </>
+                  
+                  {conge.motifRefus && (
+                    <div style={styles.refusSection}>
+                      <strong>Motif de refus:</strong>
+                      <p style={styles.refusMotif}>{conge.motifRefus}</p>
+                    </div>
                   )}
                   
-                  {conge.statut !== 'en_attente' && (
-                    <span style={styles.finalStatus}>
-                      Décision finale
+                  <div style={styles.metaInfo}>
+                    <span>Soumis le: {conge.dateSoumission 
+                      ? new Date(conge.dateSoumission?.toDate?.() || conge.dateSoumission).toLocaleDateString('fr-FR')
+                      : 'N/A'}
                     </span>
-                  )}
+                    {conge.dateTraitement && (
+                      <span>Traité le: {new Date(conge.dateTraitement?.toDate?.() || conge.dateTraitement).toLocaleDateString('fr-FR')}</span>
+                    )}
+                  </div>
                 </div>
               </div>
             );
           })
         ) : (
           <div style={styles.empty}>
-            <div style={styles.emptyIcon}>🏖️</div>
-            <h3>Aucune demande de congé trouvée</h3>
-            <p>
-              {Object.values(filters).some(f => f) 
-                ? "Aucune demande ne correspond à vos critères de recherche."
-                : "Commencez par créer votre première demande de congé."
-              }
-            </p>
-            {!Object.values(filters).some(f => f) && (
-              <button style={styles.emptyButton} onClick={handleAddClick}>
-                Créer la première demande
-              </button>
-            )}
+            <div style={styles.emptyIcon}>📋</div>
+            <h3>Aucune demande de congé</h3>
+            <p>Vous n'avez pas encore fait de demande de congé.</p>
+            <button 
+              style={styles.emptyButton}
+              onClick={() => setShowForm(true)}
+            >
+              Créer ma première demande
+            </button>
           </div>
         )}
       </div>
 
-      {/* Composant Soldes */}
-      <SoldeConge />
-
       {/* Formulaire */}
       {showForm && (
         <CongeForm 
-          conge={selectedConge}
-          onClose={handleFormClose}
+          onClose={() => setShowForm(false)}
           onSave={handleFormClose}
         />
       )}
@@ -397,255 +276,175 @@ const styles = {
   header: {
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: '30px',
-    borderBottom: '2px solid #f0f0f0',
-    paddingBottom: '20px'
-  },
-  headerLeft: {
-    flex: 1
+    flexWrap: 'wrap',
+    gap: '20px'
   },
   title: {
-    margin: 0,
+    margin: '0 0 5px 0',
     color: '#333',
     fontSize: '24px',
     fontWeight: 'bold'
   },
-  subTitle: {
-    margin: '5px 0 0 0',
+  subtitle: {
+    margin: 0,
     color: '#666',
     fontSize: '14px'
   },
   headerActions: {
     display: 'flex',
-    alignItems: 'center',
-    gap: '15px'
+    gap: '10px',
+    alignItems: 'center'
   },
-  addButton: {
-    background: '#5784BA',
-    color: 'white',
-    border: 'none',
-    padding: '12px 20px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: '500',
-    transition: 'all 0.3s ease'
-  },
-  stats: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-    gap: '15px',
-    marginBottom: '30px'
-  },
-  stat: {
-    background: '#f8f9fa',
-    padding: '20px',
-    borderRadius: '8px',
-    textAlign: 'center',
-    border: '1px solid #e9ecef'
-  },
-  statNumber: {
-    display: 'block',
-    fontSize: '24px',
-    fontWeight: 'bold',
-    color: '#5784BA',
-    marginBottom: '5px'
-  },
-  statLabel: {
-    color: '#666',
-    fontSize: '12px',
-    fontWeight: '500'
-  },
-  filtersSection: {
-    background: '#f8f9fa',
-    padding: '20px',
-    borderRadius: '8px',
-    marginBottom: '25px',
-    border: '1px solid #e9ecef'
-  },
-  filtersTitle: {
-    margin: '0 0 15px 0',
-    color: '#333',
-    fontSize: '16px',
-    fontWeight: '600'
-  },
-  filtersGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-    gap: '15px'
-  },
-  filterGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '5px'
-  },
-  filterLabel: {
-    fontSize: '12px',
-    fontWeight: '500',
-    color: '#333'
-  },
-  filterInput: {
-    padding: '8px 12px',
-    border: '1px solid #ddd',
-    borderRadius: '6px',
-    fontSize: '14px',
-    background: 'white'
-  },
-  resetButton: {
+  refreshButton: {
     background: '#6c757d',
     color: 'white',
     border: 'none',
-    padding: '8px 12px',
+    padding: '10px 15px',
+    borderRadius: '6px',
+    fontSize: '13px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease'
+  },
+  addButton: {
+    background: '#1a7c4d',
+    color: 'white',
+    border: 'none',
+    padding: '12px 24px',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease'
+  },
+  filters: {
+    display: 'flex',
+    gap: '10px',
+    marginBottom: '25px',
+    flexWrap: 'wrap'
+  },
+  filterButton: {
+    padding: '8px 16px',
+    border: '1px solid #ddd',
+    background: 'white',
     borderRadius: '6px',
     cursor: 'pointer',
-    fontSize: '12px',
-    marginTop: '18px'
+    fontSize: '13px',
+    transition: 'all 0.3s ease'
+  },
+  filterButtonActive: {
+    background: '#1a7c4d',
+    color: 'white',
+    borderColor: '#1a7c4d'
   },
   congesList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '15px',
-    marginBottom: '30px'
+    gap: '15px'
   },
   congeCard: {
-    background: '#fafafa',
+    background: '#f8f9fa',
     border: '1px solid #e9ecef',
-    borderRadius: '8px',
+    borderRadius: '10px',
     padding: '20px',
     transition: 'all 0.3s ease'
   },
-  congeHeader: {
+  cardHeader: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: '15px'
+    marginBottom: '15px',
+    paddingBottom: '15px',
+    borderBottom: '1px solid #e9ecef'
   },
-  congeInfo: {
+  cardLeft: {
     flex: 1
   },
-  enseignantName: {
-    margin: '0 0 5px 0',
+  congeType: {
+    margin: '0 0 8px 0',
     color: '#333',
     fontSize: '18px',
     fontWeight: '600'
   },
-  congeType: {
-    margin: 0,
+  congeDates: {
+    margin: '5px 0',
     color: '#666',
-    fontSize: '14px',
-    fontWeight: '500'
+    fontSize: '14px'
   },
-  congeStatus: {
-    textAlign: 'right'
+  congeDuration: {
+    margin: '5px 0 0 0',
+    color: '#1a7c4d',
+    fontSize: '13px',
+    fontWeight: '500'
   },
   statusBadge: {
     padding: '6px 12px',
     borderRadius: '20px',
-    fontSize: '12px',
-    fontWeight: '500',
     color: 'white',
-    display: 'inline-block'
-  },
-  congeDetails: {
-    marginBottom: '15px'
-  },
-  dates: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    marginBottom: '10px',
-    flexWrap: 'wrap'
-  },
-  dateRange: {
-    color: '#333',
-    fontSize: '14px',
+    fontSize: '12px',
     fontWeight: '500'
   },
-  duration: {
-    color: '#5784BA',
-    fontSize: '13px',
-    fontWeight: '500',
-    background: '#e7f3ff',
-    padding: '2px 8px',
-    borderRadius: '12px'
+  cardBody: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '15px'
+  },
+  motifSection: {
+    color: '#333',
+    fontSize: '14px'
   },
   motif: {
-    margin: '10px 0',
+    margin: '8px 0 0 0',
     color: '#666',
-    fontSize: '14px',
-    lineHeight: '1.4'
-  },
-  motifRefus: {
-    margin: '10px 0',
-    color: '#dc3545',
-    fontSize: '14px',
-    lineHeight: '1.4',
-    background: '#f8d7da',
+    fontSize: '13px',
+    lineHeight: '1.5',
+    background: 'white',
     padding: '10px',
     borderRadius: '6px',
-    border: '1px solid #f5c6cb'
+    border: '1px solid #e9ecef'
+  },
+  refusSection: {
+    background: '#fff5f5',
+    padding: '12px',
+    borderRadius: '6px',
+    border: '1px solid #f5c6cb',
+    color: '#721c24',
+    fontSize: '13px'
+  },
+  refusMotif: {
+    margin: '8px 0 0 0',
+    color: '#721c24',
+    fontSize: '13px'
   },
   metaInfo: {
     display: 'flex',
-    gap: '15px',
+    gap: '20px',
     fontSize: '12px',
     color: '#888',
-    marginTop: '10px'
-  },
-  congeActions: {
-    display: 'flex',
-    gap: '10px',
-    justifyContent: 'flex-end',
-    paddingTop: '15px',
-    borderTop: '1px solid #e9ecef'
-  },
-  editButton: {
-    background: '#ffc107',
-    color: '#212529',
-    border: 'none',
-    padding: '8px 12px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: '500'
-  },
-  deleteButton: {
-    background: '#dc3545',
-    color: 'white',
-    border: 'none',
-    padding: '8px 12px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: '500'
-  },
-  finalStatus: {
-    color: '#666',
-    fontSize: '12px',
-    fontStyle: 'italic'
+    flexWrap: 'wrap'
   },
   empty: {
     textAlign: 'center',
     padding: '60px 40px',
-    color: '#666',
     background: '#f8f9fa',
-    borderRadius: '8px'
+    borderRadius: '10px'
   },
   emptyIcon: {
     fontSize: '50px',
     marginBottom: '15px'
   },
   emptyButton: {
-    background: '#5784BA',
+    marginTop: '20px',
+    background: '#1a7c4d',
     color: 'white',
     border: 'none',
     padding: '12px 24px',
     borderRadius: '6px',
     cursor: 'pointer',
     fontSize: '14px',
-    fontWeight: '500',
-    marginTop: '15px'
+    fontWeight: '500'
   },
   loading: {
     textAlign: 'center',

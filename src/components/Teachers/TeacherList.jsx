@@ -35,9 +35,13 @@ const TeacherList = () => {
 
   // FILTRES ET RECHERCHE
   const filteredTeachers = teachers.filter(teacher => {
-    const matchesSearch = teacher.nom.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         teacher.prenom.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         teacher.email.toLowerCase().includes(searchTerm.toLowerCase());
+    if (!teacher) return false;
+    
+    const searchLower = searchTerm.toLowerCase();
+    const matchesSearch = !searchTerm || 
+                         (teacher.nom && teacher.nom.toLowerCase().includes(searchLower)) ||
+                         (teacher.prenom && teacher.prenom.toLowerCase().includes(searchLower)) ||
+                         (teacher.email && teacher.email.toLowerCase().includes(searchLower));
     
     const matchesDepartment = !filterDepartment || teacher.departement === filterDepartment;
     
@@ -111,7 +115,7 @@ const TeacherList = () => {
         <div style={styles.headerLeft}>
           <h2 style={styles.title}>Gestion des Enseignants</h2>
           <p style={styles.subTitle}>
-            {filteredTeachers.length} enseignant(s) - {new Set(teachers.map(t => t.departement)).size} département(s)
+            {filteredTeachers.length} enseignant(s) - {new Set(teachers.filter(t => t && t.departement).map(t => t.departement)).size} département(s)
           </p>
         </div>
         <div style={styles.headerActions}>
@@ -212,7 +216,7 @@ const TeacherList = () => {
         </div>
         <div style={styles.stat}>
           <span style={styles.statNumber}>
-            {teachers.filter(t => t.statut === 'Actif').length}
+            {teachers.filter(t => t && t.statut === 'Actif').length}
           </span>
           <span style={styles.statLabel}>Enseignants actifs</span>
         </div>
@@ -240,21 +244,21 @@ const TeacherList = () => {
             </thead>
             <tbody>
               {filteredTeachers.map(teacher => (
-                <tr key={teacher.id} style={styles.tableRow}>
+                <tr key={teacher.id || teacher.uid} style={styles.tableRow}>
                   <td style={styles.td}>
-                    <strong>{teacher.nom} {teacher.prenom}</strong>
+                    <strong>{teacher.nom || ''} {teacher.prenom || ''}</strong>
                   </td>
                   <td style={styles.td}>
-                    <span style={styles.departmentBadge}>{teacher.departement}</span>
+                    <span style={styles.departmentBadge}>{teacher.departement || 'N/A'}</span>
                   </td>
-                  <td style={styles.td}>{teacher.email}</td>
-                  <td style={styles.td}>{teacher.telephone}</td>
+                  <td style={styles.td}>{teacher.email || 'N/A'}</td>
+                  <td style={styles.td}>{teacher.telephone || 'N/A'}</td>
                   <td style={styles.td}>
                     <span style={{
                       ...styles.status,
                       ...(teacher.statut === 'Actif' ? styles.statusActive : styles.statusInactive)
                     }}>
-                      {teacher.statut}
+                      {teacher.statut || 'Inconnu'}
                     </span>
                   </td>
                   <td style={styles.td}>
